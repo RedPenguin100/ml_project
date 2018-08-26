@@ -1,12 +1,17 @@
+import os
+import shutil
 import tensorflow as tf
 import numpy as np
 import sys
 from numpy import sqrt
 from tensorflow.examples.tutorials.mnist import input_data
 import matplotlib.pyplot as plt
-from utils import plot_images, get_weights, get_bias, img_size, img_size_flat, num_classes
+from utils import *
 
-SAVED_MODEL_PATH = "michael_model/"
+MODEL_NAME = os.path.basename(os.path.splitext(__file__)[0])
+logger = get_logger(MODEL_NAME)
+SAVED_MODEL_PATH = "{}/".format(MODEL_NAME)
+tf.set_random_seed(deterministic_seed)
 np.set_printoptions(threshold=np.nan)
 
 
@@ -41,7 +46,7 @@ def get_closest_simplex_point(point):
     return entire_simplex[index]
 
 
-data = input_data.read_data_sets('MNIST-data', one_hot=True)
+data = input_data.read_data_sets('MNIST-data', one_hot=True, seed=deterministic_seed)
 
 data.train.simplex = np.array([convert_one_hot_to_simplex_point(label.argmax()) for label in data.train.labels])
 data.test.simplex = np.array([convert_one_hot_to_simplex_point(label.argmax()) for label in data.test.labels])
@@ -89,13 +94,13 @@ biases_fully_connected2 = get_bias([num_classes - 1])
 h_fully_connected2 = tf.matmul(h_fully_connected1, weights_fully_connected2) + biases_fully_connected2
 
 keep_prob = tf.placeholder(tf.float32)
-h_fully_connected_drop = tf.nn.dropout(h_fully_connected2, keep_prob)
+h_fully_connected_drop = tf.nn.dropout(h_fully_connected2, keep_prob, seed=deterministic_seed)
 
 # Finally, simplex!
 y_conv = h_fully_connected2
 distance = tf.reduce_sum(tf.norm(y_true_simplex - y_conv, ord='euclidean', axis=1))
 
-train_step = tf.train.AdamOptimizer(1e-4).minimize(distance)
+optimizer = tf.train.AdamOptimizer(1e-4).minimize(distance)
 
 entire_simplex = np.array([convert_one_hot_to_simplex_point(label) for label in range(num_classes)])
 entire_tf_simplex = tf.constant(entire_simplex, dtype=tf.float32)
@@ -107,30 +112,32 @@ correct_prediction = tf.equal(y_true_simplex, closest_point_on_simplex_to_y_conv
 correct_prediction = tf.map_fn(lambda truth: tf.reduce_all(truth), correct_prediction)
 accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
 
-config = tf.ConfigProto()
-config.gpu_options.allow_growth = True
-
+config = tf.ConfigProto(device_count={'GPU': 0})
+# config.gpu_options.allow_growth = True
 saver = tf.train.Saver()
+
 current_batch = 0
+number_of_iterations = 10000
 with tf.Session(config=config) as sess:
     sess.run(tf.global_variables_initializer())
     if len(sys.argv) != 2:
         raise ValueError("Wrong number of parameters")
+
     if sys.argv[1] == "train":
-        for i in range(10000):
+        shutil.rmtree(SAVED_MODEL_PATH, ignore_errors=True)
+        for i in range(number_of_iterations):
             current_batch += 50
             current_batch %= 55000
             batch_images = data.train.images[current_batch:current_batch + 50]
             batch_simplex = data.train.simplex[current_batch:current_batch + 50]
             if i % 100 == 0:
-                train_accuracy = accuracy.eval(feed_dict={
-                    x: batch_images, y_true_simplex: batch_simplex, keep_prob: 1.0})
-                print("step %d, training accuracy %.4f" % (i, train_accuracy))
+                train_accuracy = accuracy.eval(feed_dict={x: batch_images, y_true_simplex: batch_simplex})
+                print("step %d, training accuracy: %.4f" % (i, train_accuracy))
             if i % 1000 == 0:
                 saver.save(sess=sess, save_path=SAVED_MODEL_PATH)
-            train_step.run(feed_dict={x: batch_images, y_true_simplex: batch_simplex, keep_prob: 0.5})
-
+            optimizer.run(feed_dict={x: batch_images, y_true_simplex: batch_simplex})
         saver.save(sess=sess, save_path=SAVED_MODEL_PATH)
+
     elif sys.argv[1] == "restore":
         saver.restore(sess=sess, save_path=SAVED_MODEL_PATH)
     else:
@@ -142,13 +149,16 @@ with tf.Session(config=config) as sess:
         if image_count != len(simplex_label_array):
             raise ValueError("Bad dimensions given")
         all_predictions = np.zeros(len(image_array))
-        for j in range(image_count):
-            all_predictions[j] = accuracy.eval(
-                feed_dict={x: np.array(image_array[j:j + 1]),
-                           y_true_simplex: np.array(simplex_label_array[j:j + 1]),
-                           keep_prob: 1.0})
+        batch = 1000
+        for j in range(image_count // batch):
+            all_predictions[batch * j: batch * j + batch] = correct_prediction.eval(
+                feed_dict={x: np.array(image_array[batch * j:batch * j + batch]),
+                           y_true_simplex: np.array(simplex_label_array[batch * j:batch * j + batch])})
         correct_count = np.count_nonzero(all_predictions == 1)
         print("Accuracy is: %.4f" % (correct_count / image_count))
+        logger.debug("for %s after %d iterations, the accuracy is: %.4f" % (MODEL_NAME,
+                                                                            number_of_iterations,
+                                                                            correct_count / image_count))
 
 
     print_model_accuracy(image_array=data.test.images, simplex_label_array=data.test.simplex)
