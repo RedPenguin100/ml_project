@@ -67,8 +67,8 @@ optimizer = tf.train.AdamOptimizer(learning_rate=1e-4).minimize(cost)
 correct_prediction = tf.equal(y_pred_cls, y_true_cls)
 accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
 
-config = tf.ConfigProto(device_count={'GPU': 0})
-# config.gpu_options.allow_growth = True
+config = tf.ConfigProto()
+config.gpu_options.allow_growth = True
 saver = tf.train.Saver()
 
 current_batch = 0

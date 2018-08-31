@@ -72,13 +72,6 @@ biases2 = get_bias([64])
 h_conv2 = tf.nn.relu(tf.nn.conv2d(h_pool1, weights2, strides=[1, 1, 1, 1], padding='SAME') + biases2)
 h_pool2 = tf.nn.max_pool(h_conv2, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
 
-# For model 2
-# # Third convolutional layer
-# weights3 = get_weights([5, 5, 64, 64])
-# biases3 = get_bias([64])
-
-# h_conv3 = tf.nn.relu(tf.nn.conv2d(h_pool2, weights3, strides=[1, 1, 1, 1], padding='SAME') + biases3)
-
 # h_pool2 is now "picture" of size 7 * 7
 # First fully connected layer
 weights_fully_connected1 = get_weights([7 * 7 * 64, 1024])
@@ -112,8 +105,8 @@ correct_prediction = tf.equal(y_true_simplex, closest_point_on_simplex_to_y_conv
 correct_prediction = tf.map_fn(lambda truth: tf.reduce_all(truth), correct_prediction)
 accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
 
-config = tf.ConfigProto(device_count={'GPU': 0})
-# config.gpu_options.allow_growth = True
+config = tf.ConfigProto()
+config.gpu_options.allow_growth = True
 saver = tf.train.Saver()
 
 current_batch = 0
